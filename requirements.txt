@@ -1,0 +1,6 @@
+# Core dependencies (optional but recommended)
+cryptography>=41.0.0    # For AES-GCM encryption
+
+# Optional dependencies for benchmarking and visualization
+matplotlib>=3.7.0       # For benchmark graphs
+numpy>=1.24.0           # For numerical computations in plots
