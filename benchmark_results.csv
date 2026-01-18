@@ -1,0 +1,7 @@
+Operation,Algorithm,Mean Time (ms),Std Dev (ms),Min Time (ms),Max Time (ms),Memory (KB),Iterations
+Key Generation,ECC-secp256k1,36.3865,1.7526,33.9314,39.7894,8.22,20
+Key Generation,RSA-1024,611.122,476.7827,178.2935,1346.0175,18.6,5
+Key Generation,RSA-2048,2410.6396,0,2410.6396,2410.6396,56.61,1
+Key Exchange,ECDH-secp256k1,214.5408,7.1174,206.5724,236.5902,9.79,20
+Key Exchange,RSA-1024,722.856,435.5793,193.5179,1253.5215,18.06,5
+Scalar Multiplication,ECC-secp256k1,36.7911,1.5916,34.5865,44.0388,8,50

@@ -47,15 +47,22 @@ class RSAPublicKey:
 
 @dataclass
 class RSAPrivateKey:
-    """RSA Private Key."""
+    """RSA Private Key with optional CRT parameters for faster decryption."""
     n: int  # Modulus
     d: int  # Private exponent
-    p: Optional[int] = None  # First prime (optional, for CRT optimization)
-    q: Optional[int] = None  # Second prime (optional, for CRT optimization)
+    p: Optional[int] = None  # First prime (for CRT optimization)
+    q: Optional[int] = None  # Second prime (for CRT optimization)
+    dp: Optional[int] = None  # d mod (p-1) (CRT parameter)
+    dq: Optional[int] = None  # d mod (q-1) (CRT parameter)
+    qinv: Optional[int] = None  # q^(-1) mod p (CRT parameter)
     
     def bit_length(self) -> int:
         """Get the key size in bits."""
         return self.n.bit_length()
+    
+    def has_crt_params(self) -> bool:
+        """Check if CRT parameters are available for fast decryption."""
+        return all(x is not None for x in [self.p, self.q, self.dp, self.dq, self.qinv])
 
 
 @dataclass 
@@ -104,8 +111,13 @@ def generate_rsa_keypair(bits: int = 2048, e: int = 65537) -> RSAKeyPair:
     # Compute private exponent d = e^(-1) mod φ(n)
     d = mod_inverse(e, phi_n)
     
+    # Compute CRT parameters for faster decryption (~4x speedup)
+    dp = d % (p - 1)  # d mod (p-1)
+    dq = d % (q - 1)  # d mod (q-1)
+    qinv = mod_inverse(q, p)  # q^(-1) mod p
+    
     public_key = RSAPublicKey(n=n, e=e)
-    private_key = RSAPrivateKey(n=n, d=d, p=p, q=q)
+    private_key = RSAPrivateKey(n=n, d=d, p=p, q=q, dp=dp, dq=dq, qinv=qinv)
     
     return RSAKeyPair(public_key=public_key, private_key=private_key)
 
@@ -136,6 +148,14 @@ def rsa_decrypt(ciphertext: int, private_key: RSAPrivateKey) -> int:
     """
     Decrypt a ciphertext using RSA.
     
+    Uses CRT optimization if parameters available (~4x faster):
+        m1 = c^dp mod p
+        m2 = c^dq mod q  
+        h = qinv * (m1 - m2) mod p
+        m = m2 + h * q
+    
+    Falls back to: m = c^d mod n
+    
     Args:
         ciphertext: Encrypted integer
         private_key: RSA private key
@@ -143,7 +163,15 @@ def rsa_decrypt(ciphertext: int, private_key: RSAPrivateKey) -> int:
     Returns:
         Decrypted message as integer
     """
-    # m = c^d mod n
+    # Use CRT optimization if available (approximately 4x faster)
+    if private_key.has_crt_params():
+        m1 = mod_exp(ciphertext, private_key.dp, private_key.p)
+        m2 = mod_exp(ciphertext, private_key.dq, private_key.q)
+        h = (private_key.qinv * (m1 - m2)) % private_key.p
+        message = m2 + h * private_key.q
+        return message
+    
+    # Standard decryption (slower)
     message = mod_exp(ciphertext, private_key.d, private_key.n)
     return message
 
@@ -168,7 +196,13 @@ def rsa_encrypt_bytes(message: bytes, public_key: RSAPublicKey) -> bytes:
         raise ValueError(f"Message too long. Max {max_msg_len} bytes for this key size.")
     
     # Simple PKCS#1 v1.5 style padding (0x00 0x02 [random] 0x00 [message])
+    # PKCS#1 v1.5 requires minimum 8 bytes of random padding
+    MIN_PADDING_LEN = 8
     padding_len = (public_key.n.bit_length() // 8) - len(message) - 3
+    
+    if padding_len < MIN_PADDING_LEN:
+        raise ValueError(f"Padding too short ({padding_len} bytes). PKCS#1 requires minimum {MIN_PADDING_LEN} bytes.")
+    
     padding = bytes(os.urandom(padding_len).replace(b'\x00', b'\x01'))  # No zero bytes in padding
     
     padded = b'\x00\x02' + padding + b'\x00' + message
